@@ -28,10 +28,25 @@ class Paradee:
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
         self.session = ort.InferenceSession(model_path, so, providers=["CPUExecutionProvider"])
-        from misaki import en, espeak   # the same G2P setup as kokoro.KPipeline(lang_code="a"), which made the training data
-        self.g2p = en.G2P(trf=False, british=False, fallback=espeak.EspeakFallback(british=False), unk="")
+        self.config = json.load(open(config_path, encoding="utf-8")) if config_path else {}
+        self._is_thai = self.config.get("language") == "th"
+        self._th_g2p = None
+        self._en_g2p = None
+
+    @property
+    def g2p(self):
+        if self._en_g2p is None:
+            from misaki import en, espeak   # the same G2P setup as kokoro.KPipeline(lang_code="a"), which made the training data
+            self._en_g2p = en.G2P(trf=False, british=False, fallback=espeak.EspeakFallback(british=False), unk="")
+        return self._en_g2p
 
     def phonemize(self, text):
+        if self._is_thai or re.search(r"[\u0e00-\u0e7f]", text):
+            if self._th_g2p is None:
+                from fastthaig2p import G2P, ipa_to_kokoro
+                self._th_g2p = (G2P(), ipa_to_kokoro)
+            th_g2p, ipa_to_kok = self._th_g2p
+            return ipa_to_kok(th_g2p.convert(text))
         phonemes, _ = self.g2p(text)
         return phonemes
 
